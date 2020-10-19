@@ -61,3 +61,5 @@ debug_tools/WatchYourStep/ptxjitplus/*.ptx
 accel-sim-framework/
 gpu-app-collection/
 
+compile_commands.json
+.vscode/c_cpp_properties.json

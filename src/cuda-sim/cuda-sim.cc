@@ -57,6 +57,7 @@ int g_debug_execution = 0;
 // Output debug information to file options
 
 void cuda_sim::ptx_opcocde_latency_options(option_parser_t opp) {
+
   option_parser_register(
       opp, "-ptx_opcode_latency_int", OPT_CSTR, &opcode_latency_int,
       "Opcode latencies for integers <ADD,MAX,MUL,MAD,DIV,SHFL>"
@@ -436,18 +437,67 @@ addr_t generic_to_local(unsigned smid, unsigned hwtid, addr_t addr) {
 
 addr_t generic_to_global(addr_t addr) { return addr; }
 
-void *gpgpu_t::gpu_malloc(size_t size) {
+void *gpgpu_t::gpu_malloc(size_t size, unsigned int flags ) {
   unsigned long long result = m_dev_malloc;
-  if (g_debug_execution >= 3) {
-    printf(
+m_fullrowsize = FULL_ROW_SIZE;
+
+  if ( flags == MEM_DOMAIN0 ) {
+    result = m_dev_malloc0;
+    if (g_debug_execution >= 3) {
+      printf(
+        "GPGPU-Sim PTX: allocating %zu bytes on GPU starting at address "
+        "0x%Lx\n",
+        size, m_dev_malloc0);
+      fflush(stdout);
+    }
+    m_dev_malloc0 += size;
+    if (size % 256)
+      m_dev_malloc0 += (256 - size % 256);  // align to 256 byte boundaries
+    unsigned nrows0 = (m_dev_malloc0 - GLOBAL_HEAP_START + HALF_ROW_SIZE - 1)/HALF_ROW_SIZE;
+    unsigned nrows =  (m_dev_malloc - GLOBAL_HEAP_START + FULL_ROW_SIZE - 1)/FULL_ROW_SIZE;
+    if ( nrows0 > nrows )
+      m_dev_malloc = nrows0 * FULL_ROW_SIZE + GLOBAL_HEAP_START;
+    printf("TLX: dom 0 allocated at 0x%Lx, new ptr at 0x%Lx, global ptr at 0x%Lx (%d, %d)\n", result, m_dev_malloc0, m_dev_malloc, nrows0, nrows);
+  }
+  else if ( flags == MEM_DOMAIN1 ) {
+    result = m_dev_malloc1;
+    if (g_debug_execution >= 3) {
+      printf(
+        "GPGPU-Sim PTX: allocating %zu bytes on GPU starting at address "
+        "0x%Lx\n",
+        size, m_dev_malloc1);
+      fflush(stdout);
+    }
+    m_dev_malloc1 += size;
+    if (size % 256)
+      m_dev_malloc1 += (256 - size % 256);  // align to 256 byte boundaries
+    unsigned nrows1 = (m_dev_malloc1 - GLOBAL_HEAP_START + HALF_ROW_SIZE - 1)/HALF_ROW_SIZE;
+    unsigned nrows =  (m_dev_malloc - GLOBAL_HEAP_START + FULL_ROW_SIZE - 1)/FULL_ROW_SIZE;
+    if ( nrows1 > nrows )
+      m_dev_malloc = nrows1 * FULL_ROW_SIZE + GLOBAL_HEAP_START;
+    printf("TLX: dom 1 allocated at 0x%Lx, new ptr at 0x%Lx, global ptr at 0x%Lx (%d)\n", result, m_dev_malloc1, m_dev_malloc, nrows);
+  }
+  else {
+    if (g_debug_execution >= 3) {
+      printf(
         "GPGPU-Sim PTX: allocating %zu bytes on GPU starting at address "
         "0x%Lx\n",
         size, m_dev_malloc);
-    fflush(stdout);
+      fflush(stdout);
+    }
+    m_dev_malloc += size;
+    if (size % 256)
+      m_dev_malloc += (256 - size % 256);  // align to 256 byte boundaries
+    unsigned long long  nrows0 = (m_dev_malloc0 - GLOBAL_HEAP_START + HALF_ROW_SIZE - 1)/HALF_ROW_SIZE;
+    unsigned long long  nrows1 = (m_dev_malloc1 - GLOBAL_HEAP_START + HALF_ROW_SIZE - 1)/HALF_ROW_SIZE;
+    unsigned  long long nrows =  (m_dev_malloc - GLOBAL_HEAP_START + FULL_ROW_SIZE - 1)/FULL_ROW_SIZE;
+    if ( nrows > nrows0 )
+      m_dev_malloc0 = nrows * HALF_ROW_SIZE + GLOBAL_HEAP_START;
+    if ( nrows > nrows1 )
+      m_dev_malloc1 = nrows * HALF_ROW_SIZE + GLOBAL_HEAP_START;      
+    printf("TLX: global allocated at 0x%Lx, new ptr at 0x%Lx, dom ptr at 0x%Lx, 0x%Lx (%llu, %llu)\n", result, m_dev_malloc, m_dev_malloc0, m_dev_malloc1, nrows, nrows0);
   }
-  m_dev_malloc += size;
-  if (size % 256)
-    m_dev_malloc += (256 - size % 256);  // align to 256 byte boundaries
+
   return (void *)result;
 }
 

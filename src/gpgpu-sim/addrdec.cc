@@ -76,58 +76,227 @@ void linear_to_raw_address_translation::addrdec_setoption(option_parser_t opp) {
 }
 
 new_addr_type linear_to_raw_address_translation::partition_address(
-    new_addr_type addr) const {
-  if (!gap) {
-    return addrdec_packbits(~(addrdec_mask[CHIP] | sub_partition_id_mask), addr,
-                            64, 0);
-  } else {
-    // see addrdec_tlx for explanation
-    unsigned long long int partition_addr;
-    partition_addr = ((addr >> ADDR_CHIP_S) / m_n_channel) << ADDR_CHIP_S;
-    partition_addr |= addr & ((1 << ADDR_CHIP_S) - 1);
-    // remove the part of address that constributes to the sub partition ID
-    partition_addr =
-        addrdec_packbits(~sub_partition_id_mask, partition_addr, 64, 0);
-    return partition_addr;
+    new_addr_type addr_complete) const {
+
+  new_addr_type addr;
+  // Memory domain detection
+  int indomain = -1; // Address is in global memory domain
+  if ( m_n_mem_domains > 1 ) {
+	  if ( addr_complete >= (GLOBAL_HEAP_START + MEM_DOMAIN1_OFFSET + MEM_DOMAIN0_OFFSET ) )
+		  addr = addr_complete;
+	  else if ( addr_complete >= (GLOBAL_HEAP_START + MEM_DOMAIN1_OFFSET) )
+	  {
+		  addr = addr_complete - MEM_DOMAIN1_OFFSET;
+		  indomain = 1;
+	  }
+	  else if ( addr_complete >= (GLOBAL_HEAP_START + MEM_DOMAIN0_OFFSET) )
+	  {
+		  addr = addr_complete - MEM_DOMAIN0_OFFSET;
+		  indomain = 0;
+	  }
+	  else 
+    {
+      addr = addr_complete; // Address is in global memory domain
+    }
+  } else addr = addr_complete;
+
+  switch(indomain)
+  {
+    case -1: {
+      if (!gap) {
+        return addrdec_packbits(~(addrdec_mask[CHIP] | sub_partition_id_mask),
+                                addr, 64, 0);
+      } else {
+        // see addrdec_tlx for explanation
+        unsigned long long int partition_addr;
+        partition_addr = ((addr >> ADDR_CHIP_S) / m_n_channel) << ADDR_CHIP_S;
+        partition_addr |= addr & ((1 << ADDR_CHIP_S) - 1);
+        // remove the part of address that constributes to the sub partition ID
+        partition_addr =
+            addrdec_packbits(~sub_partition_id_mask, partition_addr, 64, 0);
+        return partition_addr;
+      }
+      break;
+    }
+    case 0: {
+      if (!gap0) {
+        return addrdec_packbits(~(addrdec_mask0[CHIP] | sub_partition_id_mask0),
+                                addr, 64, 0);
+      } else {
+        // see addrdec_tlx for explanation
+        unsigned long long int partition_addr;
+        partition_addr = ((addr >> ADDR_CHIP_S) / m_n_channel0) << ADDR_CHIP_S;
+        partition_addr |= addr & ((1 << ADDR_CHIP_S) - 1);
+        // remove the part of address that constributes to the sub partition ID
+        partition_addr =
+            addrdec_packbits(~sub_partition_id_mask0, partition_addr, 64, 0);
+        return partition_addr;
+      }
+      break;
+    }
+    case 1:{
+      if (!gap1) {
+        return addrdec_packbits(~(addrdec_mask1[CHIP] | sub_partition_id_mask1),
+                                addr, 64, 0);
+      } else {
+        // see addrdec_tlx for explanation
+        unsigned long long int partition_addr;
+        partition_addr = ((addr >> ADDR_CHIP_S) / m_n_channel1) << ADDR_CHIP_S;
+        partition_addr |= addr & ((1 << ADDR_CHIP_S) - 1);
+        // remove the part of address that constributes to the sub partition ID
+        partition_addr =
+            addrdec_packbits(~sub_partition_id_mask1, partition_addr, 64, 0);
+        return partition_addr;
+      }
+      break;
+    }
   }
 }
 
-void linear_to_raw_address_translation::addrdec_tlx(new_addr_type addr,
+void linear_to_raw_address_translation::addrdec_tlx(new_addr_type addr_complete,
                                                     addrdec_t *tlx) const {
   unsigned long long int addr_for_chip, rest_of_addr, rest_of_addr_high_bits;
-  if (!gap) {
-    tlx->chip = addrdec_packbits(addrdec_mask[CHIP], addr, addrdec_mkhigh[CHIP],
-                                 addrdec_mklow[CHIP]);
-    tlx->bk = addrdec_packbits(addrdec_mask[BK], addr, addrdec_mkhigh[BK],
-                               addrdec_mklow[BK]);
-    tlx->row = addrdec_packbits(addrdec_mask[ROW], addr, addrdec_mkhigh[ROW],
-                                addrdec_mklow[ROW]);
-    tlx->col = addrdec_packbits(addrdec_mask[COL], addr, addrdec_mkhigh[COL],
-                                addrdec_mklow[COL]);
-    tlx->burst = addrdec_packbits(addrdec_mask[BURST], addr,
-                                  addrdec_mkhigh[BURST], addrdec_mklow[BURST]);
-    rest_of_addr_high_bits =
-        (addr >> (ADDR_CHIP_S + (log2channel + log2sub_partition)));
 
-  } else {
-    // Split the given address at ADDR_CHIP_S into (MSBs,LSBs)
-    // - extract chip address using modulus of MSBs
-    // - recreate the rest of the address by stitching the quotient of MSBs and
-    // the LSBs
-    addr_for_chip = (addr >> ADDR_CHIP_S) % m_n_channel;
-    rest_of_addr = ((addr >> ADDR_CHIP_S) / m_n_channel) << ADDR_CHIP_S;
-    rest_of_addr_high_bits = ((addr >> ADDR_CHIP_S) / m_n_channel);
-    rest_of_addr |= addr & ((1 << ADDR_CHIP_S) - 1);
+  new_addr_type addr;
+  // Memory domain detection
+  int indomain = -1; // Address is in global memory domain
+  if ( m_n_mem_domains > 1 ) {
+	  if ( addr_complete >= (GLOBAL_HEAP_START + MEM_DOMAIN1_OFFSET + MEM_DOMAIN0_OFFSET ) )
+		  addr = addr_complete;
+	  else if ( addr_complete >= (GLOBAL_HEAP_START + MEM_DOMAIN1_OFFSET) )
+	  {
+		  addr = addr_complete - MEM_DOMAIN1_OFFSET;
+		  indomain = 1;
+	  }
+	  else if ( addr_complete >= (GLOBAL_HEAP_START + MEM_DOMAIN0_OFFSET) )
+	  {
+		  addr = addr_complete - MEM_DOMAIN0_OFFSET;
+		  indomain = 0;
+	  }
+	  else 
+    {
+      addr = addr_complete; // Address is in global memory domain
+    }
+  } else addr = addr_complete;
+  
+  switch(indomain) {
+    case -1: {
+      if (!gap) {
+        tlx->chip = addrdec_packbits(addrdec_mask[CHIP], addr,
+                                     addrdec_mkhigh[CHIP], addrdec_mklow[CHIP]);
+        tlx->bk = addrdec_packbits(addrdec_mask[BK], addr, addrdec_mkhigh[BK],
+                                   addrdec_mklow[BK]);
+        tlx->row = addrdec_packbits(addrdec_mask[ROW], addr,
+                                    addrdec_mkhigh[ROW], addrdec_mklow[ROW]);
+        tlx->col = addrdec_packbits(addrdec_mask[COL], addr,
+                                    addrdec_mkhigh[COL], addrdec_mklow[COL]);
+        tlx->burst =
+            addrdec_packbits(addrdec_mask[BURST], addr, addrdec_mkhigh[BURST],
+                             addrdec_mklow[BURST]);
+        rest_of_addr_high_bits =
+            (addr >> (ADDR_CHIP_S + (log2channel + log2sub_partition)));
 
-    tlx->chip = addr_for_chip;
-    tlx->bk = addrdec_packbits(addrdec_mask[BK], rest_of_addr,
-                               addrdec_mkhigh[BK], addrdec_mklow[BK]);
-    tlx->row = addrdec_packbits(addrdec_mask[ROW], rest_of_addr,
-                                addrdec_mkhigh[ROW], addrdec_mklow[ROW]);
-    tlx->col = addrdec_packbits(addrdec_mask[COL], rest_of_addr,
-                                addrdec_mkhigh[COL], addrdec_mklow[COL]);
-    tlx->burst = addrdec_packbits(addrdec_mask[BURST], rest_of_addr,
-                                  addrdec_mkhigh[BURST], addrdec_mklow[BURST]);
+      } else {
+        // Split the given address at ADDR_CHIP_S into (MSBs,LSBs)
+        // - extract chip address using modulus of MSBs
+        // - recreate the rest of the address by stitching the quotient of MSBs
+        // and the LSBs
+        addr_for_chip = (addr >> ADDR_CHIP_S) % m_n_channel;
+        rest_of_addr = ((addr >> ADDR_CHIP_S) / m_n_channel) << ADDR_CHIP_S;
+        rest_of_addr_high_bits = ((addr >> ADDR_CHIP_S) / m_n_channel);
+        rest_of_addr |= addr & ((1 << ADDR_CHIP_S) - 1);
+
+        tlx->chip = addr_for_chip;
+        tlx->bk = addrdec_packbits(addrdec_mask[BK], rest_of_addr,
+                                   addrdec_mkhigh[BK], addrdec_mklow[BK]);
+        tlx->row = addrdec_packbits(addrdec_mask[ROW], rest_of_addr,
+                                    addrdec_mkhigh[ROW], addrdec_mklow[ROW]);
+        tlx->col = addrdec_packbits(addrdec_mask[COL], rest_of_addr,
+                                    addrdec_mkhigh[COL], addrdec_mklow[COL]);
+        tlx->burst =
+            addrdec_packbits(addrdec_mask[BURST], rest_of_addr,
+                             addrdec_mkhigh[BURST], addrdec_mklow[BURST]);
+      }
+      break;
+    }
+    case 0: {
+      if (!gap0) {
+        tlx->chip = addrdec_packbits(addrdec_mask0[CHIP], addr,
+                                     addrdec_mkhigh0[CHIP], addrdec_mklow0[CHIP]);
+        tlx->bk = addrdec_packbits(addrdec_mask0[BK], addr, addrdec_mkhigh0[BK],
+                                   addrdec_mklow0[BK]);
+        tlx->row = addrdec_packbits(addrdec_mask0[ROW], addr,
+                                    addrdec_mkhigh0[ROW], addrdec_mklow0[ROW]);
+        tlx->col = addrdec_packbits(addrdec_mask0[COL], addr,
+                                    addrdec_mkhigh0[COL], addrdec_mklow0[COL]);
+        tlx->burst =
+            addrdec_packbits(addrdec_mask0[BURST], addr, addrdec_mkhigh0[BURST],
+                             addrdec_mklow0[BURST]);
+        rest_of_addr_high_bits =
+            (addr >> (ADDR_CHIP_S + (log2channel0 + log2sub_partition0)));
+
+      } else {
+        // Split the given address at ADDR_CHIP_S into (MSBs,LSBs)
+        // - extract chip address using modulus of MSBs
+        // - recreate the rest of the address by stitching the quotient of MSBs
+        // and the LSBs
+        addr_for_chip = (addr >> ADDR_CHIP_S) % m_n_channel0;
+        rest_of_addr = ((addr >> ADDR_CHIP_S) / m_n_channel0) << ADDR_CHIP_S;
+        rest_of_addr_high_bits = ((addr >> ADDR_CHIP_S) / m_n_channel0);
+        rest_of_addr |= addr & ((1 << ADDR_CHIP_S) - 1);
+
+        tlx->chip = addr_for_chip;
+        tlx->bk = addrdec_packbits(addrdec_mask0[BK], rest_of_addr,
+                                   addrdec_mkhigh0[BK], addrdec_mklow0[BK]);
+        tlx->row = addrdec_packbits(addrdec_mask0[ROW], rest_of_addr,
+                                    addrdec_mkhigh0[ROW], addrdec_mklow0[ROW]);
+        tlx->col = addrdec_packbits(addrdec_mask0[COL], rest_of_addr,
+                                    addrdec_mkhigh0[COL], addrdec_mklow0[COL]);
+        tlx->burst =
+            addrdec_packbits(addrdec_mask0[BURST], rest_of_addr,
+                             addrdec_mkhigh0[BURST], addrdec_mklow0[BURST]);
+      }
+      break;
+    }
+    case 1: {
+      if (!gap1) {
+        tlx->chip = addrdec_packbits(addrdec_mask1[CHIP], addr,
+                                     addrdec_mkhigh1[CHIP], addrdec_mklow1[CHIP]);
+        tlx->bk = addrdec_packbits(addrdec_mask1[BK], addr, addrdec_mkhigh1[BK],
+                                   addrdec_mklow1[BK]);
+        tlx->row = addrdec_packbits(addrdec_mask1[ROW], addr,
+                                    addrdec_mkhigh1[ROW], addrdec_mklow1[ROW]);
+        tlx->col = addrdec_packbits(addrdec_mask1[COL], addr,
+                                    addrdec_mkhigh1[COL], addrdec_mklow1[COL]);
+        tlx->burst =
+            addrdec_packbits(addrdec_mask1[BURST], addr, addrdec_mkhigh1[BURST],
+                             addrdec_mklow1[BURST]);
+        rest_of_addr_high_bits =
+            (addr >> (ADDR_CHIP_S + (log2channel1 + log2sub_partition1)));
+
+      } else {
+        // Split the given address at ADDR_CHIP_S into (MSBs,LSBs)
+        // - extract chip address using modulus of MSBs
+        // - recreate the rest of the address by stitching the quotient of MSBs
+        // and the LSBs
+        addr_for_chip = (addr >> ADDR_CHIP_S) % m_n_channel1;
+        rest_of_addr = ((addr >> ADDR_CHIP_S) / m_n_channel1) << ADDR_CHIP_S;
+        rest_of_addr_high_bits = ((addr >> ADDR_CHIP_S) / m_n_channel1);
+        rest_of_addr |= addr & ((1 << ADDR_CHIP_S) - 1);
+
+        tlx->chip = addr_for_chip;
+        tlx->bk = addrdec_packbits(addrdec_mask1[BK], rest_of_addr,
+                                   addrdec_mkhigh1[BK], addrdec_mklow1[BK]);
+        tlx->row = addrdec_packbits(addrdec_mask1[ROW], rest_of_addr,
+                                    addrdec_mkhigh1[ROW], addrdec_mklow1[ROW]);
+        tlx->col = addrdec_packbits(addrdec_mask1[COL], rest_of_addr,
+                                    addrdec_mkhigh1[COL], addrdec_mklow1[COL]);
+        tlx->burst =
+            addrdec_packbits(addrdec_mask1[BURST], rest_of_addr,
+                             addrdec_mkhigh1[BURST], addrdec_mklow1[BURST]);
+      }
+      break;
+    }    
   }
 
   switch (memory_partition_indexing) {
@@ -193,11 +362,19 @@ void linear_to_raw_address_translation::addrdec_tlx(new_addr_type addr,
       break;
   }
 
+  if ( m_n_mem_domains > 1 )
+  {
+	   if ( indomain == 1 )
+      tlx->chip += m_n_channel0;
+  }
+
   // combine the chip address and the lower bits of DRAM bank address to form
   // the subpartition ID
   unsigned sub_partition_addr_mask = m_n_sub_partition_in_channel - 1;
   tlx->sub_partition = tlx->chip * m_n_sub_partition_in_channel +
                        (tlx->bk & sub_partition_addr_mask);
+                       
+  fprintf(stderr,"TLX: %llx (%llx)\t%d\t%d\t%d\t%d\t%d\t%d\n", addr_complete, addr, indomain, tlx->chip, tlx->bk, tlx->row, tlx->col, tlx->sub_partition);
 }
 
 void linear_to_raw_address_translation::addrdec_parseoption(
@@ -279,8 +456,9 @@ void linear_to_raw_address_translation::addrdec_parseoption(
   }
 }
 
+// Memory domains
 void linear_to_raw_address_translation::init(
-    unsigned int n_channel, unsigned int n_sub_partition_in_channel) {
+    unsigned int n_channel, unsigned int n_sub_partition_in_channel, unsigned int n_mem_domains) {
   unsigned i;
   unsigned long long int mask;
   unsigned int nchipbits = ::LOGB2_32(n_channel);
@@ -295,6 +473,42 @@ void linear_to_raw_address_translation::init(
   if (gap) {
     nchipbits++;
   }
+
+  m_n_mem_domains = n_mem_domains;
+  // Memory domain 0
+  unsigned int n_channel0 = n_channel/2;
+  unsigned int nchipbits0 = ::LOGB2_32(n_channel0);
+  log2channel0 = nchipbits0;
+  log2sub_partition0 = log2sub_partition; // No need to consider a different number of subpartitions
+  m_n_channel0 = n_channel0;
+  m_n_sub_partition_in_channel0 = n_sub_partition_in_channel;
+  nextPowerOf2_m_n_channel0 = ::next_powerOf2(n_channel0);
+  m_n_sub_partition_total0 = n_channel0 * n_sub_partition_in_channel;
+
+  gap0 = (n_channel0 - ::powli(2, nchipbits0));
+  if (gap0) {
+    nchipbits0++;
+  }
+
+  // Memory domain 1
+  unsigned int n_channel1 = n_channel - n_channel0;
+  unsigned int nchipbits1 = ::LOGB2_32(n_channel1);
+  log2channel1 = nchipbits1;
+  log2sub_partition1 = log2sub_partition; // No need to consider a different number of subpartitions
+  m_n_channel1 = n_channel0;
+  m_n_sub_partition_in_channel1 = n_sub_partition_in_channel;
+  nextPowerOf2_m_n_channel1 = ::next_powerOf2(n_channel1);
+  m_n_sub_partition_total1 = n_channel1 * n_sub_partition_in_channel;
+
+  gap1 = (n_channel1 - ::powli(2, nchipbits1));
+  if (gap1) {
+    nchipbits1++;
+  }
+
+printf("Memory channels %d, sub %d, chipbits %d, gap %d\n", n_channel, n_sub_partition_in_channel, nchipbits, gap);
+printf("Domain 0 Memory channels %d, chipbits %d, gap %d\n", n_channel0, nchipbits0, gap0);
+printf("Domain 1 Memory channels %d, chipbits %d, gap %d\n", n_channel1, nchipbits1, gap1);
+
   switch (gpgpu_mem_address_mask) {
     case 0:
       // old, added 2row bits, use #define ADDR_CHIP_S 10
@@ -396,6 +610,21 @@ void linear_to_raw_address_translation::init(
 
   if (addrdec_option != NULL) addrdec_parseoption(addrdec_option);
 
+  printf("Address mask %d, %d\n", gpgpu_mem_address_mask, ADDR_CHIP_S);
+  // Memory domain 0
+  addrdec_mask0[CHIP] = addrdec_mask[CHIP];
+  addrdec_mask0[BK] = addrdec_mask[BK];
+  addrdec_mask0[ROW] = addrdec_mask[ROW];
+  addrdec_mask0[COL] = addrdec_mask[COL];
+  addrdec_mask0[BURST] = addrdec_mask[BURST];
+
+  // Memory domain 1
+  addrdec_mask1[CHIP] = addrdec_mask[CHIP];
+  addrdec_mask1[BK] = addrdec_mask[BK];
+  addrdec_mask1[ROW] = addrdec_mask[ROW];
+  addrdec_mask1[COL] = addrdec_mask[COL];
+  addrdec_mask1[BURST] = addrdec_mask[BURST];
+
   if (ADDR_CHIP_S != -1) {
     if (!gap) {
       // number of chip is power of two:
@@ -413,9 +642,45 @@ void linear_to_raw_address_translation::init(
         addrdec_mask[CHIP] |= mask;
       }
     }  // otherwise, no need to change the masks
+
+    if (!gap0) {
+      // number of chip is power of two:
+      // - insert CHIP mask starting at the bit position ADDR_CHIP_S
+      mask = ((unsigned long long int)1 << ADDR_CHIP_S) - 1;
+      addrdec_mask0[BK] =
+          ((addrdec_mask0[BK] & ~mask) << nchipbits0) | (addrdec_mask0[BK] & mask);
+      addrdec_mask0[ROW] = ((addrdec_mask0[ROW] & ~mask) << nchipbits0) |
+                          (addrdec_mask0[ROW] & mask);
+      addrdec_mask0[COL] = ((addrdec_mask0[COL] & ~mask) << nchipbits0) |
+                          (addrdec_mask0[COL] & mask);
+
+      for (i = ADDR_CHIP_S; i < (ADDR_CHIP_S + nchipbits0); i++) {
+        mask = (unsigned long long int)1 << i;
+        addrdec_mask0[CHIP] |= mask;
+      }
+    }  // otherwise, no need to change the masks
+
+    if (!gap1) {
+      // number of chip is power of two:
+      // - insert CHIP mask starting at the bit position ADDR_CHIP_S
+      mask = ((unsigned long long int)1 << ADDR_CHIP_S) - 1;
+      addrdec_mask1[BK] =
+          ((addrdec_mask1[BK] & ~mask) << nchipbits1) | (addrdec_mask1[BK] & mask);
+      addrdec_mask1[ROW] = ((addrdec_mask1[ROW] & ~mask) << nchipbits1) |
+                          (addrdec_mask1[ROW] & mask);
+      addrdec_mask1[COL] = ((addrdec_mask1[COL] & ~mask) << nchipbits1) |
+                          (addrdec_mask1[COL] & mask);
+
+      for (i = ADDR_CHIP_S; i < (ADDR_CHIP_S + nchipbits1); i++) {
+        mask = (unsigned long long int)1 << i;
+        addrdec_mask1[CHIP] |= mask;
+      }
+    }  // otherwise, no need to change the masks
   } else {
     // make sure n_channel is power of two when explicit dram id mask is used
     assert((n_channel & (n_channel - 1)) == 0);
+    assert((n_channel0 & (n_channel0 - 1)) == 0);
+    assert((n_channel1 & (n_channel1 - 1)) == 0);
   }
   // make sure m_n_sub_partition_in_channel is power of two
   assert((m_n_sub_partition_in_channel & (m_n_sub_partition_in_channel - 1)) ==
@@ -432,6 +697,28 @@ void linear_to_raw_address_translation::init(
   addrdec_getmasklimit(addrdec_mask[BURST], &addrdec_mkhigh[BURST],
                        &addrdec_mklow[BURST]);
 
+  addrdec_getmasklimit(addrdec_mask0[CHIP], &addrdec_mkhigh0[CHIP],
+                       &addrdec_mklow0[CHIP]);
+  addrdec_getmasklimit(addrdec_mask0[BK], &addrdec_mkhigh0[BK],
+                       &addrdec_mklow0[BK]);
+  addrdec_getmasklimit(addrdec_mask0[ROW], &addrdec_mkhigh0[ROW],
+                       &addrdec_mklow0[ROW]);
+  addrdec_getmasklimit(addrdec_mask0[COL], &addrdec_mkhigh0[COL],
+                       &addrdec_mklow0[COL]);
+  addrdec_getmasklimit(addrdec_mask0[BURST], &addrdec_mkhigh0[BURST],
+                       &addrdec_mklow0[BURST]);
+
+  addrdec_getmasklimit(addrdec_mask1[CHIP], &addrdec_mkhigh1[CHIP],
+                       &addrdec_mklow1[CHIP]);
+  addrdec_getmasklimit(addrdec_mask1[BK], &addrdec_mkhigh1[BK],
+                       &addrdec_mklow1[BK]);
+  addrdec_getmasklimit(addrdec_mask1[ROW], &addrdec_mkhigh1[ROW],
+                       &addrdec_mklow1[ROW]);
+  addrdec_getmasklimit(addrdec_mask1[COL], &addrdec_mkhigh1[COL],
+                       &addrdec_mklow1[COL]);
+  addrdec_getmasklimit(addrdec_mask1[BURST], &addrdec_mkhigh1[BURST],
+                       &addrdec_mklow1[BURST]);
+
   printf("addr_dec_mask[CHIP]  = %016llx \thigh:%d low:%d\n",
          addrdec_mask[CHIP], addrdec_mkhigh[CHIP], addrdec_mklow[CHIP]);
   printf("addr_dec_mask[BK]    = %016llx \thigh:%d low:%d\n", addrdec_mask[BK],
@@ -442,6 +729,30 @@ void linear_to_raw_address_translation::init(
          addrdec_mkhigh[COL], addrdec_mklow[COL]);
   printf("addr_dec_mask[BURST] = %016llx \thigh:%d low:%d\n",
          addrdec_mask[BURST], addrdec_mkhigh[BURST], addrdec_mklow[BURST]);
+
+  printf("Memory domain 0\n");
+  printf("addr_dec_mask[CHIP]  = %016llx \thigh:%d low:%d\n",
+         addrdec_mask0[CHIP], addrdec_mkhigh0[CHIP], addrdec_mklow0[CHIP]);
+  printf("addr_dec_mask[BK]    = %016llx \thigh:%d low:%d\n", addrdec_mask0[BK],
+         addrdec_mkhigh0[BK], addrdec_mklow0[BK]);
+  printf("addr_dec_mask[ROW]   = %016llx \thigh:%d low:%d\n", addrdec_mask0[ROW],
+         addrdec_mkhigh0[ROW], addrdec_mklow0[ROW]);
+  printf("addr_dec_mask[COL]   = %016llx \thigh:%d low:%d\n", addrdec_mask0[COL],
+         addrdec_mkhigh0[COL], addrdec_mklow0[COL]);
+  printf("addr_dec_mask[BURST] = %016llx \thigh:%d low:%d\n",
+         addrdec_mask0[BURST], addrdec_mkhigh0[BURST], addrdec_mklow0[BURST]);
+
+  printf("Memory domain 1\n");
+  printf("addr_dec_mask[CHIP]  = %016llx \thigh:%d low:%d\n",
+         addrdec_mask1[CHIP], addrdec_mkhigh1[CHIP], addrdec_mklow1[CHIP]);
+  printf("addr_dec_mask[BK]    = %016llx \thigh:%d low:%d\n", addrdec_mask1[BK],
+         addrdec_mkhigh1[BK], addrdec_mklow1[BK]);
+  printf("addr_dec_mask[ROW]   = %016llx \thigh:%d low:%d\n", addrdec_mask1[ROW],
+         addrdec_mkhigh1[ROW], addrdec_mklow1[ROW]);
+  printf("addr_dec_mask[COL]   = %016llx \thigh:%d low:%d\n", addrdec_mask1[COL],
+         addrdec_mkhigh1[COL], addrdec_mklow1[COL]);
+  printf("addr_dec_mask[BURST] = %016llx \thigh:%d low:%d\n",
+         addrdec_mask1[BURST], addrdec_mkhigh1[BURST], addrdec_mklow1[BURST]);
 
   // create the sub partition ID mask (for removing the sub partition ID from
   // the partition address)
@@ -458,6 +769,35 @@ void linear_to_raw_address_translation::init(
     }
   }
   printf("sub_partition_id_mask = %016llx\n", sub_partition_id_mask);
+
+  sub_partition_id_mask0 = 0;
+  if (m_n_sub_partition_in_channel0 > 1) {
+    unsigned n_sub_partition_log20 = LOGB2_32(m_n_sub_partition_in_channel0);
+    unsigned pos = 0;
+    for (unsigned i = addrdec_mklow0[BK]; i < addrdec_mkhigh0[BK]; i++) {
+      if ((addrdec_mask0[BK] & ((unsigned long long int)1 << i)) != 0) {
+        sub_partition_id_mask0 |= ((unsigned long long int)1 << i);
+        pos++;
+        if (pos >= n_sub_partition_log20) break;
+      }
+    }
+  }
+  printf("sub_partition_id_mask0 = %016llx\n", sub_partition_id_mask0);
+
+  sub_partition_id_mask1 = 0;
+  if (m_n_sub_partition_in_channel1 > 1) {
+    unsigned n_sub_partition_log21 = LOGB2_32(m_n_sub_partition_in_channel1);
+    unsigned pos = 0;
+    for (unsigned i = addrdec_mklow1[BK]; i < addrdec_mkhigh1[BK]; i++) {
+      if ((addrdec_mask1[BK] & ((unsigned long long int)1 << i)) != 0) {
+        sub_partition_id_mask1 |= ((unsigned long long int)1 << i);
+        pos++;
+        if (pos >= n_sub_partition_log21) break;
+      }
+    }
+  }
+  printf("sub_partition_id_mask1 = %016llx\n", sub_partition_id_mask1);
+
 
   if (run_test) {
     sweep_test();

@@ -226,7 +226,7 @@ class memory_config {
     fprintf(stdout, "Total number of memory sub partition = %u\n",
             m_n_mem_sub_partition);
 
-    m_address_mapping.init(m_n_mem, m_n_sub_partition_per_memory_channel);
+    m_address_mapping.init(m_n_mem, m_n_sub_partition_per_memory_channel, m_n_mem_domains);
     m_L2_config.init(&m_address_mapping);
 
     m_valid = true;
@@ -255,6 +255,8 @@ class memory_config {
 
   unsigned rop_latency;
   unsigned dram_latency;
+
+  unsigned m_n_mem_domains;
 
   // DRAM parameters
 
@@ -372,6 +374,8 @@ class gpgpu_sim_config : public power_config,
 
   bool flush_l1() const { return gpgpu_flush_l1_cache; }
 
+  unsigned get_num_mem_domains() const { return m_memory_config.m_n_mem_domains; }
+  
  private:
   void init_clock_domains(void);
 

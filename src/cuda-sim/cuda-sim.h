@@ -101,6 +101,10 @@ class functionalCoreSim : public core_t {
   bool *m_warpAtBarrier;
 };
 
+// Flags for memory domains
+#define MEM_DOMAIN0 20
+#define MEM_DOMAIN1 21
+
 #define RECONVERGE_RETURN_PC ((address_type)-2)
 #define NO_BRANCH_DIVERGENCE ((address_type)-1)
 address_type get_return_pc(void *thd);

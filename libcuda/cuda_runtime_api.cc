@@ -1007,6 +1007,7 @@ cudaError_t cudaLaunchInternal(const char *hostFun,
 }
 
 cudaError_t cudaMallocInternal(void **devPtr, size_t size,
+                               unsigned int flags = 0, // Memory domain flag
                                gpgpu_context *gpgpu_ctx = NULL) {
   gpgpu_context *ctx;
   if (gpgpu_ctx) {
@@ -1018,10 +1019,22 @@ cudaError_t cudaMallocInternal(void **devPtr, size_t size,
     announce_call(__my_func__);
   }
   CUctx_st *context = GPGPUSim_Context(ctx);
-  *devPtr = context->get_device()->get_gpgpu()->gpu_malloc(size);
+  *devPtr = context->get_device()->get_gpgpu()->gpu_malloc(size, flags);
+
+  const gpgpu_sim_config &config = context->get_device()->get_gpgpu()->get_config();
+
+  if (  config.get_num_mem_domains() > 1 ) {
+    if ( flags == MEM_DOMAIN0 )
+      *devPtr += MEM_DOMAIN0_OFFSET;
+    else if ( flags == MEM_DOMAIN1 )
+      *devPtr += MEM_DOMAIN1_OFFSET;
+  }
+
+  printf("TLX: cudaMallocing %zu bytes starting at 0x%llx in domain %u.\n",
+          size, (unsigned long long)*devPtr, flags);
   if (g_debug_execution >= 3) {
-    printf("GPGPU-Sim PTX: cudaMallocing %zu bytes starting at 0x%llx..\n",
-           size, (unsigned long long)*devPtr);
+    printf("GPGPU-Sim PTX: cudaMallocing %zu bytes starting at 0x%llx in domain %u.\n",
+           size, (unsigned long long)*devPtr, flags);
     ctx->api->g_mallocPtr_Size[(unsigned long long)*devPtr] = size;
   }
   if (*devPtr) {
@@ -2306,6 +2319,13 @@ cudaError_t cudaPeekAtLastError(void) { return g_last_cudaError; }
 
 __host__ cudaError_t CUDARTAPI cudaMalloc(void **devPtr, size_t size) {
   return cudaMallocInternal(devPtr, size);
+}
+
+// cudaMallocManaged is not implemented in current GPGPU-SIM, thus its behaviour
+//   has been redefined to manage memory domains
+// TODO... add a new function in api to manage memory domains
+__host__ cudaError_t CUDARTAPI cudaMallocManaged(void **devPtr, size_t size, unsigned int flags) {
+  return cudaMallocInternal(devPtr, size, flags);
 }
 
 __host__ cudaError_t CUDARTAPI cudaMallocHost(void **ptr, size_t size) {

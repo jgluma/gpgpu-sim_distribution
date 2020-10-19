@@ -445,6 +445,12 @@ class simt_stack {
 // start allocating from this address (lower values used for allocating globals
 // in .ptx file)
 const unsigned long long GLOBAL_HEAP_START = 0xC0000000;
+// Offset for memory domains
+const unsigned long long MEM_DOMAIN0_OFFSET = 0x10000000;
+const unsigned long long MEM_DOMAIN1_OFFSET = 0x20000000;
+const unsigned long long FULL_ROW_SIZE = 0x060000;
+const unsigned long long HALF_ROW_SIZE = 0x030000;
+
 // Volta max shmem size is 96kB
 const unsigned long long SHARED_MEM_SIZE_MAX = 96 * (1 << 10);
 // Volta max local mem is 16kB
@@ -563,7 +569,8 @@ class gpgpu_t {
   unsigned long long gpu_sim_cycle;
   unsigned long long gpu_tot_sim_cycle;
 
-  void *gpu_malloc(size_t size);
+  // Memory domains
+  void *gpu_malloc(size_t size, unsigned int flags = 0);
   void *gpu_mallocarray(size_t count);
   void gpu_memset(size_t dst_start_addr, int c, size_t count);
   void memcpy_to_gpu(size_t dst_start_addr, const void *src, size_t count);
@@ -644,6 +651,9 @@ class gpgpu_t {
   class memory_space *m_surf_mem;
 
   unsigned long long m_dev_malloc;
+  // Memory domains
+  unsigned long long m_dev_malloc0, m_dev_malloc1;
+  unsigned long long m_fullrowsize;
   //  These maps contain the current texture mappings for the GPU at any given
   //  time.
   std::map<std::string, std::set<const struct textureReference *> >

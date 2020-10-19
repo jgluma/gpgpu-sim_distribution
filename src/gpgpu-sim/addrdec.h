@@ -61,7 +61,7 @@ class linear_to_raw_address_translation {
  public:
   linear_to_raw_address_translation();
   void addrdec_setoption(option_parser_t opp);
-  void init(unsigned int n_channel, unsigned int n_sub_partition_in_channel);
+  void init(unsigned int n_channel, unsigned int n_sub_partition_in_channel, unsigned int n_mem_domains);
 
   // accessors
   void addrdec_tlx(new_addr_type addr, addrdec_t *tlx) const;
@@ -91,6 +91,36 @@ class linear_to_raw_address_translation {
   unsigned log2channel;
   unsigned log2sub_partition;
   unsigned nextPowerOf2_m_n_channel;
+
+  unsigned int m_n_mem_domains;
+  // Memory domain 0
+  unsigned char addrdec_mklow0[N_ADDRDEC];
+  unsigned char addrdec_mkhigh0[N_ADDRDEC];
+  new_addr_type addrdec_mask0[N_ADDRDEC];
+  new_addr_type sub_partition_id_mask0;
+
+  unsigned int gap0;
+  unsigned m_n_channel0;
+  int m_n_sub_partition_in_channel0;
+  int m_n_sub_partition_total0;
+  unsigned log2channel0;
+  unsigned log2sub_partition0;
+  unsigned nextPowerOf2_m_n_channel0;
+
+  // Memory domain 1
+  unsigned char addrdec_mklow1[N_ADDRDEC];
+  unsigned char addrdec_mkhigh1[N_ADDRDEC];
+  new_addr_type addrdec_mask1[N_ADDRDEC];
+  new_addr_type sub_partition_id_mask1;
+
+  unsigned int gap1;
+  unsigned m_n_channel1;
+  int m_n_sub_partition_in_channel1;
+  int m_n_sub_partition_total1;
+  unsigned log2channel1;
+  unsigned log2sub_partition1;
+  unsigned nextPowerOf2_m_n_channel1;
+
 };
 
 #endif
