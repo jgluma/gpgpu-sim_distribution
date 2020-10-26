@@ -65,7 +65,9 @@ class dram_req_t {
   unsigned int insertion_time;
   class mem_fetch *data;
   class gpgpu_sim *m_gpu;
-};
+
+  // Nico: kernel id of the request dram instruction
+  unsigned int kernel_id;};
 
 struct bankgrp_t {
   unsigned int CCDLc;

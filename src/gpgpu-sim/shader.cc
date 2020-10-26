@@ -55,7 +55,7 @@
 mem_fetch *shader_core_mem_fetch_allocator::alloc(
     new_addr_type addr, mem_access_type type, unsigned size, bool wr,
     unsigned long long cycle) const {
-  mem_access_t access(type, addr, size, wr, m_memory_config->gpgpu_ctx);
+  mem_access_t access(0, type, addr, size, wr, m_memory_config->gpgpu_ctx);
   mem_fetch *mf =
       new mem_fetch(access, NULL, wr ? WRITE_PACKET_SIZE : READ_PACKET_SIZE, -1,
                     m_core_id, m_cluster_id, m_memory_config, cycle);
@@ -536,7 +536,7 @@ void shader_core_ctx::init_warps(unsigned cta_id, unsigned start_thread,
         start_pc = pc;
       }
 
-      m_warp[i]->init(start_pc, cta_id, i, active_threads, m_dynamic_warp_id);
+      m_warp[i]->init(start_pc, cta_id, i, active_threads, m_dynamic_warp_id, kernel_id);
       ++m_dynamic_warp_id;
       m_not_completed += n_active;
       ++m_active_warps;
@@ -854,7 +854,12 @@ void shader_core_ctx::decode() {
   if (m_inst_fetch_buffer.m_valid) {
     // decode 1 or 2 instructions and place them into ibuffer
     address_type pc = m_inst_fetch_buffer.m_pc;
-    const warp_inst_t *pI1 = get_next_inst(m_inst_fetch_buffer.m_warp_id, pc);
+  unsigned kernel_id = m_inst_fetch_buffer.m_kernel_id; // Nico: read kernel id from fetch buffer;
+  warp_inst_t *pIt1 = (warp_inst_t *) m_gpu->gpgpu_ctx->ptx_fetch_inst(pc); // Nico:  Get a no-constant instance
+	if (pIt1) // Nico: Only if instruction exits
+		pIt1->m_kernel_id = kernel_id; // Nico: associate kernel id with instruction
+    const warp_inst_t *pI1 = pIt1; // Nico: constant instance (as in original code)
+  // const warp_inst_t *pI1 = get_next_inst(m_inst_fetch_buffer.m_warp_id, pc);
     m_warp[m_inst_fetch_buffer.m_warp_id]->ibuffer_fill(0, pI1);
     m_warp[m_inst_fetch_buffer.m_warp_id]->inc_inst_in_pipeline();
     if (pI1) {
@@ -864,8 +869,12 @@ void shader_core_ctx::decode() {
       } else if (pI1->oprnd_type == FP_OP) {
         m_stats->m_num_FPdecoded_insn[m_sid]++;
       }
-      const warp_inst_t *pI2 =
-          get_next_inst(m_inst_fetch_buffer.m_warp_id, pc + pI1->isize);
+	  warp_inst_t *pIt2 = (warp_inst_t *) m_gpu->gpgpu_ctx->ptx_fetch_inst(pc + pI1->isize); // Nico:  Get a no-constant instance
+	  if (pIt2) // Nico: Only if instruction exits
+		pIt2->m_kernel_id = kernel_id; // Nico soporte SMK anota el id del kernel en la instruccion
+      const warp_inst_t *pI2 = pIt2; // Nico: constant instance (as in original code)
+      //const warp_inst_t *pI2 =
+      //    m_gpu->gpgpu_ctx->ptx_fetch_inst(pc + pI1->isize); Nico: previous code
       if (pI2) {
         m_warp[m_inst_fetch_buffer.m_warp_id]->ibuffer_fill(1, pI2);
         m_warp[m_inst_fetch_buffer.m_warp_id]->inc_inst_in_pipeline();
@@ -886,9 +895,9 @@ void shader_core_ctx::fetch() {
     if (m_L1I->access_ready()) {
       mem_fetch *mf = m_L1I->next_access();
       m_warp[mf->get_wid()]->clear_imiss_pending();
-      m_inst_fetch_buffer =
-          ifetch_buffer_t(m_warp[mf->get_wid()]->get_pc(),
-                          mf->get_access_size(), mf->get_wid());
+	  // Nico: a new parameter tp pass kernel id is added to next funcion 
+      m_inst_fetch_buffer = ifetch_buffer_t(m_warp[mf->get_wid()]->get_kernel_id(),
+          m_warp[mf->get_wid()]->get_pc(), mf->get_access_size(), mf->get_wid());      
       assert(m_warp[mf->get_wid()]->get_pc() ==
              (mf->get_addr() -
               PROGRAM_MEM_START));  // Verify that we got the instruction we
@@ -932,12 +941,19 @@ void shader_core_ctx::fetch() {
         }
 
         // this code fetches instructions from the i-cache or generates memory
+        // requests
+		//Nico: local variable
+		unsigned kernel_id;
         if (!m_warp[warp_id]->functional_done() &&
             !m_warp[warp_id]->imiss_pending() &&
             m_warp[warp_id]->ibuffer_empty()) {
           address_type pc;
           pc = m_warp[warp_id]->get_pc();
           address_type ppc = pc + PROGRAM_MEM_START;
+		  //Nico
+		  kernel_id = m_warp[warp_id]->get_kernel_id();
+      if (kernel_id != 1 && kernel_id != 2)
+        printf("Para1\n");          
           unsigned nbytes = 16;
           unsigned offset_in_block =
               pc & (m_config->m_L1I_config.get_line_sz() - 1);
@@ -946,7 +962,7 @@ void shader_core_ctx::fetch() {
 
           // TODO: replace with use of allocator
           // mem_fetch *mf = m_mem_fetch_allocator->alloc()
-          mem_access_t acc(INST_ACC_R, ppc, nbytes, false, m_gpu->gpgpu_ctx);
+          mem_access_t acc(kernel_id, INST_ACC_R, ppc, nbytes, false, m_gpu->gpgpu_ctx); // Nico: 
           mem_fetch *mf = new mem_fetch(
               acc, NULL /*we don't have an instruction yet*/, READ_PACKET_SIZE,
               warp_id, m_sid, m_tpc, m_memory_config,
@@ -966,7 +982,7 @@ void shader_core_ctx::fetch() {
             m_warp[warp_id]->set_last_fetch(m_gpu->gpu_sim_cycle);
           } else if (status == HIT) {
             m_last_warp_fetched = warp_id;
-            m_inst_fetch_buffer = ifetch_buffer_t(pc, nbytes, warp_id);
+            m_inst_fetch_buffer = ifetch_buffer_t(kernel_id, pc, nbytes, warp_id);
             m_warp[warp_id]->set_last_fetch(m_gpu->gpu_sim_cycle);
             delete mf;
           } else {
@@ -1731,6 +1747,8 @@ void shader_core_ctx::warp_inst_complete(const warp_inst_t &inst) {
 
   m_stats->m_num_sim_winsn[m_sid]++;
   m_gpu->gpu_sim_insn += inst.active_count();
+  //Nico
+  m_gpu->gpu_sim_insn_per_kernel[inst.m_kernel_id] += inst.active_count();
   inst.completed(m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle);
 }
 
@@ -2693,6 +2711,11 @@ void shader_core_ctx::register_cta_thread_exit(unsigned cta_num,
     m_barriers.deallocate_barrier(cta_num);
     shader_CTA_count_unlog(m_sid, 1);
 
+    //Nico
+    //printf("CTA_EX: Execution cycles of kernel %d cta =%lld\n", kernel->get_uid(), m_gpu->gpu_sim_cycle - cta_start_cycle[cta_num]); 
+	  //Nico: decrease the number of running CTAs 
+    m_cluster->cont_CTAs[kernel->get_uid()-1][m_sid % m_config->n_simt_cores_per_cluster]--; // m_sid % m_config->n_simt_cores_per_cluster idndicated the core id within the cluster
+    //printf("Saliendo cta --> KerneliId=%2d cluster=%2d core=%2d num_ctas=%d, max_ctas=%d \n", kernel->get_uid(), m_sid/2, m_sid % 2, m_cluster->cont_CTAs[kernel->get_uid()-1][m_sid % 2], kernel->max_ctas_per_core[m_sid % 2]);
     SHADER_DPRINTF(
         LIVENESS,
         "GPGPU-Sim uArch: Finished CTA #%u (%lld,%lld), %u CTAs running\n",
@@ -3194,6 +3217,147 @@ void shader_core_ctx::display_pipeline(FILE *fout, int print_mem,
         fprintf(fout, "%u ", tid);
       }
     }
+  }
+}
+
+// Nico: given kernel k1 using mcta ctas per core, calculate mac number of ctas for kernel 2 
+void shader_core_config::smk_max_cta(const kernel_info_t &k1, const kernel_info_t &k2) const {
+  unsigned int *mcta1_core = (unsigned int *)k1.max_ctas_per_core;
+  unsigned int *mcta2_core = (unsigned int *)k2.max_ctas_per_core;
+
+  unsigned threads_per_cta_k1 = k1.threads_per_cta();
+  const class function_info *kernel1 = k1.entry();
+  unsigned int padded_cta_size_k1 = threads_per_cta_k1;
+  if (padded_cta_size_k1 % warp_size)
+    padded_cta_size_k1 = ((padded_cta_size_k1 / warp_size) + 1) * (warp_size);
+
+  unsigned threads_per_cta_k2 = k2.threads_per_cta();
+  const class function_info *kernel2 = k2.entry();
+  unsigned int padded_cta_size_k2 = threads_per_cta_k2;
+  if (padded_cta_size_k2 % warp_size)
+    padded_cta_size_k2 = ((padded_cta_size_k2 / warp_size) + 1) * (warp_size);
+
+  //unsigned int remaining_shmem_size =  gpgpu_shmem_size; 
+  
+  const struct gpgpu_ptx_sim_info *kernel_info1 = ptx_sim_kernel_info(kernel1);
+  const struct gpgpu_ptx_sim_info *kernel_info2 = ptx_sim_kernel_info(kernel2);
+
+  // Remove shared mmemory occupied by k1 in the cluster (adding all cores)
+  //for (unsigned int c=0;  c <n_simt_cores_per_cluster; c++)
+   //   remaining_shmem_size -= (mcta1_core[c] * kernel_info1->smem);
+
+  for (unsigned int c=0; c < n_simt_cores_per_cluster; c++) { // MEjor seria mcta1_shd->sizeo(), pero da error
+
+    // Remaining n_threads/core after k1 cta allocation
+    unsigned int remaining_threads = n_thread_per_shader - padded_cta_size_k1 * mcta1_core[c];
+
+    // Remaining shared memory per core
+    unsigned int remaining_shmem_size = gpgpu_shmem_size - kernel_info1->smem * mcta1_core[c];
+
+    // Remaining registers/core after register k1 allocation
+    unsigned int remainning_regs = gpgpu_shader_registers - mcta1_core[c] * padded_cta_size_k1 * ((kernel_info1->regs + 3) & ~3);
+  
+    // k2 assignmnent
+    // Limit by n_threads/shader
+    unsigned int result_thread = remaining_threads / padded_cta_size_k2;
+
+    // Limit by shmem
+    unsigned int result_shmem = (unsigned)-1;
+    if (kernel_info2->smem > 0) 
+      result_shmem = remaining_shmem_size/ kernel_info2->smem;
+
+    // Limit by register count, rounded up to multiple of 4.
+    unsigned int result_regs = (unsigned)-1;
+    if (kernel_info2->regs > 0)
+      result_regs = remainning_regs /
+                  (padded_cta_size_k2 * ((kernel_info2->regs + 3) & ~3));
+
+    // Limit by CTA per core
+    unsigned int result_cta;
+    result_cta = max_cta_per_core - mcta1_core[c];
+      
+    unsigned result = result_thread;
+    result = gs_min2(result, result_shmem);
+    result = gs_min2(result, result_regs);
+    result = gs_min2(result, result_cta);
+
+    //Nico: update shared mem remaining resources
+    
+    //remaining_shmem_size -= result *  kernel_info2->smem;
+    
+    printf("GPGPU-Sim uArch: core %d = %u, limited by:", c, result);
+    if (result == result_thread) printf(" threads");
+    if (result == result_shmem) printf(" shmem");
+    if (result == result_regs) printf(" regs");
+    if (result == result_cta) printf(" cta_limit");
+    printf("\n");
+    mcta2_core[c] = result;
+
+
+    // gpu_max_cta_per_shader is limited by number of CTAs if not enough to keep
+    // all cores busy
+    if (k2.num_blocks() < result * num_shader()) {
+      result = k2.num_blocks() / num_shader();
+      if (k2.num_blocks() % num_shader()) result++;
+    }
+
+    assert(result <= MAX_CTA_PER_SHADER);
+    if (result < 1) { // Nico: It is possible a kernel get 0 ctas in a core
+      printf("GPGPU-Sim uArch: Warning ** Kernel cannot launch any cta in this core\n");
+    }
+  }
+
+  //Nico: Attention: The follwinf code can give probkems with smk if activated. Recommendation: adaptive_cache_config->false.
+  if (adaptive_cache_config && !k2.cache_config_set) {
+    const struct gpgpu_ptx_sim_info *kernel_info1 = ptx_sim_kernel_info(k1.entry());
+    const struct gpgpu_ptx_sim_info *kernel_info2 = ptx_sim_kernel_info(k2.entry());
+    // For more info about adaptive cache, see
+    // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
+    unsigned total_shmed = kernel_info1->smem * (mcta1_core[0] * mcta1_core[1]) + kernel_info2->smem * (mcta2_core[0] * mcta2_core[1]);
+    assert(total_shmed >= 0 && total_shmed <= gpgpu_shmem_size);
+    // assert(gpgpu_shmem_size == 98304); //Volta has 96 KB shared
+    // assert(m_L1D_config.get_nset() == 4);  //Volta L1 has four sets
+    if (total_shmed < gpgpu_shmem_size) {
+      switch (adaptive_cache_config) {
+        case FIXED:
+          break;
+        case ADAPTIVE_VOLTA: {
+          // For Volta, we assign the remaining shared memory to L1 cache
+          // For more info about adaptive cache, see
+          // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
+          // assert(gpgpu_shmem_size == 98304); //Volta has 96 KB shared
+
+          // To Do: make it flexible and not tuned to 9KB share memory
+          unsigned max_assoc = m_L1D_config.get_max_assoc();
+          if (total_shmed == 0)
+            m_L1D_config.set_assoc(max_assoc);  // L1 is 128KB and shd=0
+          else if (total_shmed > 0 && total_shmed <= 8192)
+            m_L1D_config.set_assoc(0.9375 *
+                                   max_assoc);  // L1 is 120KB and shd=8KB
+          else if (total_shmed > 8192 && total_shmed <= 16384)
+            m_L1D_config.set_assoc(0.875 *
+                                   max_assoc);  // L1 is 112KB and shd=16KB
+          else if (total_shmed > 16384 && total_shmed <= 32768)
+            m_L1D_config.set_assoc(0.75 * max_assoc);  // L1 is 96KB and
+                                                       // shd=32KB
+          else if (total_shmed > 32768 && total_shmed <= 65536)
+            m_L1D_config.set_assoc(0.5 * max_assoc);  // L1 is 64KB and shd=64KB
+          else if (total_shmed > 65536 && total_shmed <= gpgpu_shmem_size)
+            m_L1D_config.set_assoc(0.25 * max_assoc);  // L1 is 32KB and
+                                                       // shd=96KB
+          else
+            assert(0);
+          break;
+        }
+        default:
+          assert(0);
+      }
+
+      printf("GPGPU-Sim: Reconfigure L1 cache to %uKB\n",
+             m_L1D_config.get_total_size_inKB());
+    }
+
+    k2.cache_config_set = true;
   }
 }
 
@@ -4126,6 +4290,21 @@ simt_core_cluster::simt_core_cluster(class gpgpu_sim *gpu, unsigned cluster_id,
   m_gpu = gpu;
   m_stats = stats;
   m_memory_stats = mstats;
+
+  //Nico: SMK support, an array for cluster is created with a position per kernel
+  gpgpu_sim_config const gpu_config = gpu->get_config();
+
+  cont_CTAs = new unsigned int *[gpu_config.get_max_concurrent_kernel()];
+  for (unsigned int i=0; i < gpu_config.get_max_concurrent_kernel(); i++)
+    cont_CTAs[i] = new unsigned int[config->n_simt_cores_per_cluster]();
+  
+  m_core = new shader_core_ctx *[config->n_simt_cores_per_cluster];
+  for (unsigned i = 0; i < config->n_simt_cores_per_cluster; i++) {
+    unsigned sid = m_config->cid_to_sid(i, m_cluster_id);
+    m_core[i] = new exec_shader_core_ctx(m_gpu, this, sid, m_cluster_id,
+                                         m_config, m_mem_config, m_stats);
+    m_core_sim_order.push_back(i);
+  }  
   m_mem_config = mem_config;
 }
 
@@ -4187,6 +4366,102 @@ unsigned simt_core_cluster::get_n_active_sms() const {
     n += m_core[i]->isactive();
   return n;
 }
+
+//Nico: SMT scheduling 
+unsigned simt_core_cluster::issue_block2core_SMT() {
+  unsigned num_blocks_issued = 0; 
+  std::vector<kernel_info_t *> rkernels; 
+  kernel_info_t *kernel;
+
+  unsigned int cont = 0;
+  rkernels = m_gpu->get_running_kernels();
+  unsigned int k_index[2];
+  
+  // Get kernel index of first two running kernels
+  for (unsigned k = 0; k < m_gpu->get_num_running_kernels(); k++) {
+    if (rkernels[k] != NULL){
+      k_index[cont] = k;
+      cont++;
+      if (cont >=2)
+        break;
+    }
+  }
+
+  assert(cont>=1); // At least one kernel has been launched
+
+  if (m_cluster_id < m_gpu->get_config().get_SMT_SMs_kernel1()) // Depending of cluster id, a kernel is selected
+    kernel = rkernels[k_index[0]];
+  else
+    if (cont ==2)
+      kernel = rkernels[k_index[1]];
+    else
+      kernel = NULL; // Kernel should be null if only a kernel is running in SMT mode
+
+  for (unsigned i = 0; i < m_config->n_simt_cores_per_cluster; i++) {
+		unsigned core = (i + m_cta_issue_next_core + 1) % m_config->n_simt_cores_per_cluster;
+    if (kernel != NULL) {	// Kernel should be null if only a kernel is running in SMT mode
+      if (m_gpu->kernel_more_cta_left(kernel) && m_core[core]->can_issue_1block(*kernel) == true) {
+        m_core[core]->issue_block2core(*kernel);
+			  num_blocks_issued++;
+			  m_cta_issue_next_core = core;
+        //printf("Asigning cta of kernel %d to cluster=%d core=%d\n",  kernel->get_uid(), m_cluster_id, core);
+			  break;
+      }
+    }
+    else
+      break;
+  }
+
+  return num_blocks_issued;
+}
+
+//Nico: SMK scheduling 
+unsigned simt_core_cluster::issue_block2core_SMK() {
+  unsigned num_blocks_issued = 0; 
+  kernel_info_t *kernel; 
+  
+  gpgpu_sim_config const gpu_config = m_gpu->get_config();
+  
+  for (unsigned k = 0; k < m_gpu->get_num_running_kernels(); k++) {
+
+	  kernel = m_gpu->select_alternative_kernel(k);
+	
+	  if (kernel != NULL) {
+		
+		  //printf("cluster=%d Kernel=%d cont_CTAs=%d max_CTAS=%d\n", m_cluster_id, kernel->get_uid(), cont_CTAs[kernel->get_uid()-1], kernel->get_max_ctas());
+		  assert(kernel->get_uid() <= gpu_config.get_max_concurrent_kernel() && kernel->get_uid() > 0); // Nico: Max allowed kernel id m_config->get_max_concurrent_kernel() see simt_core_cluster::simt_core_cluster
+
+      /*if (kernel->max_ctas_per_core[0]>16 || kernel->max_ctas_per_core[1]>16)
+        printf("Aqui\n");*/
+		  // if (cont_CTAs[kernel->get_uid()-1][] < kernel->get_max_ctas()) { 
+
+      for (unsigned i = 0; i < m_config->n_simt_cores_per_cluster; i++) { // Identify period where cta configuration is changing
+        if (cont_CTAs[kernel->get_uid()-1][i] > kernel->max_ctas_per_core[i]) {
+           kernel->num_excedded_ctas++; // number of cores with excedded ctas of a kernel
+           break;
+         }
+      }
+		
+		  for (unsigned i = 0; i < m_config->n_simt_cores_per_cluster; i++) {
+			  unsigned core = (i + m_cta_issue_next_core + 1) % m_config->n_simt_cores_per_cluster;
+
+				 if (m_gpu->kernel_more_cta_left(kernel) && cont_CTAs[kernel->get_uid()-1][core] < kernel->max_ctas_per_core[core] /*&&   m_core[core]->can_issue_1block(*kernel)*/) {
+          if (m_core[core]->can_issue_1block(*kernel) == true) {  // In some situations (when num ctas per kernels changes) ocuppied resources can be prevent launching new ctas. It should be a temporary situation.  
+            //printf("KerneliId=%2d cluster=%2d core=%2d num_ctas=%d, max_ctas=%d \n", kernel->get_uid(), m_cluster_id, core, cont_CTAs[kernel->get_uid()-1][core], kernel->max_ctas_per_core[core]);
+            m_core[core]->issue_block2core(*kernel);
+            cont_CTAs[kernel->get_uid()-1][core]++;
+			  		  num_blocks_issued++;
+			  		  m_cta_issue_next_core = core;
+			  		  k = m_gpu->get_num_running_kernels();
+			  		  break;
+          }  
+			  }
+		  }
+	  }
+  }
+  
+  return num_blocks_issued;
+}  
 
 unsigned simt_core_cluster::issue_block2core() {
   unsigned num_blocks_issued = 0;

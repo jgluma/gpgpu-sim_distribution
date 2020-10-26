@@ -360,6 +360,10 @@ class gpgpu_sim_config : public power_config,
     m_valid = true;
   }
 
+// Nico
+  unsigned get_SMK_ctas_kernel1() const { return gpu_smk_mctas_kernel1; }
+  unsigned get_SMT_SMs_kernel1() const { return gpu_smt_SMs_kernel1; }
+
   unsigned num_shader() const { return m_shader_config.num_shader(); }
   unsigned num_cluster() const { return m_shader_config.n_simt_clusters; }
   unsigned get_max_concurrent_kernel() const { return max_concurrent_kernel; }
@@ -429,6 +433,13 @@ class gpgpu_sim_config : public power_config,
   unsigned long long liveness_message_freq;
 
   friend class gpgpu_sim;
+  
+  // Nico: max number of ctas per kernel that can be ruuning in a cluster
+  unsigned gpu_smk_mctas_kernel1;
+  // Nico: num SMs (clusters) assigned to kernel1
+  unsigned gpu_smt_SMs_kernel1;
+  // Nico: Filename to save coexecution info
+  char *gpu_smk_stats_filename;
 };
 
 struct occupancy_stats {
@@ -481,6 +492,14 @@ class watchpoint_event {
   const ptx_instruction *m_inst;
 };
 
+// Nico: structue to store configuration perfromance
+typedef struct{
+  unsigned id1, id2; // kernels id
+  unsigned num_ctas1, num_ctas2; // Num ctas per cluster 
+  unsigned long long ins1, ins2;
+  double ipc1, ipc2; // instruction per cycle
+} t_perf_conf;
+
 class gpgpu_sim : public gpgpu_t {
  public:
   gpgpu_sim(const gpgpu_sim_config &config, gpgpu_context *ctx);
@@ -507,6 +526,10 @@ class gpgpu_sim : public gpgpu_t {
             (gpu_completed_cta >= m_config.gpu_max_completed_cta_opt));
   }
   void print_stats();
+
+  //Nico
+  void print_only_ipc_stats(kernel_info_t *kernel);
+
   void update_stats();
   void deadlock_check();
   void inc_completed_cta() { gpu_completed_cta++; }
@@ -525,6 +548,14 @@ class gpgpu_sim : public gpgpu_t {
   int get_max_cta(const kernel_info_t &k) const;
   const struct cudaDeviceProp *get_prop() const;
   enum divergence_support_t simd_model() const;
+ 
+  //Nico: get number of running kernels
+  unsigned get_num_running_kernels() {return m_running_kernels.size();}
+  
+  std::vector<kernel_info_t *> get_running_kernels() {return m_running_kernels;} 
+
+  //Nico: function called each time a new kernel is launched to estabish max ctas per core 
+  void smk_max_cta_per_core();
 
   unsigned threads_per_core() const;
   bool get_more_cta_left() const;
@@ -532,6 +563,8 @@ class gpgpu_sim : public gpgpu_t {
   bool hit_max_cta_count() const;
   kernel_info_t *select_kernel();
   void decrement_kernel_latency();
+//Nico: declaration of new method
+  kernel_info_t *select_alternative_kernel(unsigned idx);
 
   const gpgpu_sim_config &get_config() const { return m_config; }
   void gpu_print_stat();
@@ -573,6 +606,9 @@ class gpgpu_sim : public gpgpu_t {
   // clocks
   void reinit_clock_domains(void);
   int next_clock_domain(void);
+  void coexecution_performace(void);
+  void save_configuration_performance(t_perf_conf *conf, kernel_info_t *kernel1, kernel_info_t *kernel2);
+  void smk_reset_excedded_ctas(void);
   void issue_block2core();
   void print_dram_stats(FILE *fout) const;
   void shader_print_runtime_stat(FILE *fout);
@@ -625,6 +661,12 @@ class gpgpu_sim : public gpgpu_t {
   class power_stat_t *m_power_stats;
   class gpgpu_sim_wrapper *m_gpgpusim_wrapper;
   unsigned long long last_gpu_sim_insn;
+  //Nico
+  double prev_ws; // previous weighted speedup of conrrung kernels 
+  t_perf_conf prev_conf_perf, curr_conf_perf, prev_sampl_perf; // Save configuration performance
+  unsigned int perf_sampl_interval; // Perofmrance sampling rate rate in cycles
+  unsigned long long last_sampl_cycle=0;
+  bool perf_sampl_active=true;
 
   unsigned long long last_liveness_message_time;
 
@@ -645,6 +687,13 @@ class gpgpu_sim : public gpgpu_t {
  public:
   unsigned long long gpu_sim_insn;
   unsigned long long gpu_tot_sim_insn;
+  //Nico: counters of executed instructions per kernel
+  unsigned long long *gpu_sim_insn_per_kernel;
+  unsigned long long *gpu_tot_sim_insn_per_kernel;
+  // Nico: annotate when co-execution start (in case previous execution is sequential) for each kernel
+  unsigned long long *gpu_sim_start_kernel_cycle;
+  unsigned long long *gpu_sim_start_kernel_inst;
+  
   unsigned long long gpu_sim_insn_last_update;
   unsigned gpu_sim_insn_last_update_sid;
   occupancy_stats gpu_occupancy;

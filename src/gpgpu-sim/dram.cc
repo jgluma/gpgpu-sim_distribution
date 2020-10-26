@@ -239,6 +239,8 @@ dram_req_t::dram_req_t(class mem_fetch *mf, unsigned banks,
   addr = mf->get_addr();
   insertion_time = (unsigned)m_gpu->gpu_sim_cycle;
   rw = data->get_is_write() ? WRITE : READ;
+  //Nico: Assigning kernel id identification
+  kernel_id = mf->get_kernel_id();
 }
 
 void dram_t::push(class mem_fetch *data) {

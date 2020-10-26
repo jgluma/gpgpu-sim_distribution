@@ -124,7 +124,7 @@ class shd_warp_t {
   }
   void init(address_type start_pc, unsigned cta_id, unsigned wid,
             const std::bitset<MAX_WARP_SIZE> &active,
-            unsigned dynamic_warp_id) {
+            unsigned dynamic_warp_id, unsigned kid) {
     m_cta_id = cta_id;
     m_warp_id = wid;
     m_dynamic_warp_id = dynamic_warp_id;
@@ -134,6 +134,9 @@ class shd_warp_t {
     n_completed -= active.count();  // active threads are not yet completed
     m_active_threads = active;
     m_done_exit = false;
+
+  //Nico: kernel id info is included
+	kernel_id = kid;
 
     // Jin: cdp support
     m_cdp_latency = 0;
@@ -238,6 +241,9 @@ class shd_warp_t {
   unsigned get_dynamic_warp_id() const { return m_dynamic_warp_id; }
   unsigned get_warp_id() const { return m_warp_id; }
 
+  // Nico: method to obtain kernel id
+  unsigned get_kernel_id() {return kernel_id;}
+
   class shader_core_ctx * get_shader() { return m_shader; }
  private:
   static const unsigned IBUFFER_SIZE = 2;
@@ -277,6 +283,9 @@ class shd_warp_t {
   unsigned m_stores_outstanding;  // number of store requests sent but not yet
                                   // acknowledged
   unsigned m_inst_in_pipeline;
+  
+  // Nico: kernel id is declares as public
+  unsigned kernel_id;
 
   // Jin: cdp support
  public:
@@ -1018,13 +1027,16 @@ struct insn_latency_info {
 struct ifetch_buffer_t {
   ifetch_buffer_t() { m_valid = false; }
 
-  ifetch_buffer_t(address_type pc, unsigned nbytes, unsigned warp_id) {
+  // Nico: a new filed is added to struct
+  ifetch_buffer_t(unsigned kernel_id, address_type pc, unsigned nbytes, unsigned warp_id) {
     m_valid = true;
     m_pc = pc;
     m_nbytes = nbytes;
     m_warp_id = warp_id;
+	m_kernel_id = kernel_id;
   }
 
+  unsigned m_kernel_id;
   bool m_valid;
   address_type m_pc;
   unsigned m_nbytes;
@@ -1481,6 +1493,7 @@ class shader_core_config : public core_config {
     }
   }
   void reg_options(class OptionParser *opp);
+  void smk_max_cta(const kernel_info_t &k1, const kernel_info_t &k2)  const;  
   unsigned max_cta(const kernel_info_t &k) const;
   unsigned num_shader() const {
     return n_simt_clusters * n_simt_cores_per_cluster;
@@ -1863,6 +1876,8 @@ class shader_core_mem_fetch_allocator : public mem_fetch_allocator {
         access, &inst_copy,
         access.is_write() ? WRITE_PACKET_SIZE : READ_PACKET_SIZE,
         inst.warp_id(), m_core_id, m_cluster_id, m_memory_config, cycle);
+        // Nico: Anotate kernel id generating this memory access
+        mf->set_kernel_id(inst.m_kernel_id);
     return mf;
   }
 
@@ -2122,6 +2137,8 @@ class shader_core_ctx : public core_t {
   }
 
   int test_res_bus(int latency);
+  void init_warps(unsigned cta_id, unsigned start_thread, unsigned end_thread,
+                  unsigned ctaid, int cta_size, unsigned kernel_id);
   address_type next_pc(int tid) const;
   void fetch();
   void register_cta_thread_exit(unsigned cta_num, kernel_info_t *kernel);
@@ -2197,6 +2214,8 @@ class shader_core_ctx : public core_t {
   // CTA scheduling / hardware thread allocation
   unsigned m_n_active_cta;  // number of Cooperative Thread Arrays (blocks)
                             // currently running on this shader.
+  //Nico: annotatee start execution cycle of a hw cta
+  unsigned long long cta_start_cycle[MAX_CTA_PER_SHADER];
   unsigned m_cta_status[MAX_CTA_PER_SHADER];  // CTAs status
   unsigned m_not_completed;  // number of threads to be completed (==0 when all
                              // thread on this core completed)
@@ -2309,6 +2328,9 @@ class simt_core_cluster {
 
   void reinit();
   unsigned issue_block2core();
+  //Nico: new method declaration
+  unsigned issue_block2core_SMK();
+  unsigned issue_block2core_SMT();
   void cache_flush();
   void cache_invalidate();
   bool icnt_injection_buffer_full(unsigned size, bool write);
@@ -2358,6 +2380,11 @@ class simt_core_cluster {
   unsigned m_cta_issue_next_core;
   std::list<unsigned> m_core_sim_order;
   std::list<mem_fetch *> m_response_fifo;
+
+  // Nico: array to annotate the number of CTAs running per kernel 
+  // array positions are indexed with kernel id 
+ public:
+  unsigned **cont_CTAs; // CTA counter of running CTAs on cluster for two kernels.  
 };
 
 class exec_simt_core_cluster : public simt_core_cluster {
